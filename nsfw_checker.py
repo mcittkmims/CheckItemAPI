@@ -1,22 +1,11 @@
 import os
-import requests
-
 from azure.ai.contentsafety import ContentSafetyClient
 from azure.ai.contentsafety.models import AnalyzeImageOptions, ImageData, ImageCategory
 from azure.core.credentials import AzureKeyCredential
 from azure.core.exceptions import HttpResponseError
-from dotenv import load_dotenv
 
 
-def nsfw_image_checker(image_url, endpoint, api_key):
-
-    try:
-        response = requests.get(image_url, stream=True)
-        response.raise_for_status()
-        image_content = response.content
-    except requests.exceptions.RequestException as e:
-        print(f"Failed to fetch image from URL: {e}")
-        raise
+def nsfw_image_checker(image_content, endpoint, api_key):
 
     # Create an Azure AI Content Safety client
     client = ContentSafetyClient(endpoint, AzureKeyCredential(api_key))
@@ -27,13 +16,11 @@ def nsfw_image_checker(image_url, endpoint, api_key):
     try:
         response = client.analyze_image(request)
     except HttpResponseError as e:
-        print("Analyze image failed.")
-        if e.error:
-            print(f"Error code: {e.error.code}")
-            print(f"Error message: {e.error.message}")
-            raise
-        print(e)
-        raise
+        return {
+            "error": "Not Found",
+            "message": "Image analysis failed. Please try again later.",
+            "code": 500
+        }
 
     hate_result = next(item for item in response.categories_analysis if item.category == ImageCategory.HATE)
     self_harm_result = next(item for item in response.categories_analysis if item.category == ImageCategory.SELF_HARM)
@@ -49,6 +36,16 @@ def nsfw_image_checker(image_url, endpoint, api_key):
     if violence_result:
         print(f"Violence severity: {violence_result.severity}")
 
+    if not (hate_result.severity or self_harm_result.severity or sexual_result.severity or violence_result.severity):
+        return {
+            "safe": True,
+            "message": "Image is safe.",
+            "code": 200
+        }
 
-load_dotenv()
-nsfw_image_checker('https://static1.dualshockersimages.com/wordpress/wp-content/uploads/2023/12/tamaki-from-fire-force.jpg', os.getenv('CONTENT_SAFETY_ENDPOINT'), os.getenv('CONTENT_SAFETY_KEY'))
+    return {
+        "safe": False,
+        "message": "Image contains potentially unsafe content.",
+        "code": 200
+    }
+
