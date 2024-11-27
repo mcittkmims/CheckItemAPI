@@ -2,7 +2,7 @@ import os
 import base64
 from flask import Flask, jsonify, request
 from dotenv import load_dotenv
-from nsfw_checker import nsfw_image_checker
+from nsfw_checker import nsfw_image_checker, nsfw_text_checker
 from get_image import fetch_image
 
 # Initialize the Flask app
@@ -12,8 +12,7 @@ load_dotenv()
 
 
 @app.route('/check', methods=['POST'])
-def check_image():
-
+def check_image_and_text():
     data = request.get_json()
 
     # Extract image_url, image_content, and description text
@@ -21,35 +20,32 @@ def check_image():
     image_content = data.get('image_content')
     description = data.get('description')
 
-    # Validate the input data
+    # Validate the input data: Both 'image_content' and 'description' must be provided
     if not description:
         return jsonify({
-            "error": "Not Found",
+            "error": "Bad Request",
             "message": "'description' is required",
-            "code": 404
-        }), 404
+            "code": 400
+        }), 400
 
-    # Check if either image_url or image_content is provided
-    if image_url:
-        # Fetch the image content from the URL (using the fetch_image function)
-        try:
-            image_content = fetch_image(image_url)
-        except ValueError as e:
-            # If fetching the image fails, return a JSON response with error message
-            return jsonify({
-                "error": "Not Found",
-                "message": f"Failed to fetch image from URL: {str(e)}",
-                "code": 404
-            }), 404
-    elif not image_content:
+    if not (image_url or image_content):
         return jsonify({
             "error": "Bad Request",
             "message": "Either 'image_url' or 'image_content' must be provided",
             "code": 400
         }), 400
 
-    # If image_content is base64-encoded, decode it
-    if isinstance(image_content, str):
+    # If image_url is provided, fetch the image content
+    if image_url:
+        try:
+            image_content = fetch_image(image_url)  # Assuming fetch_image is implemented elsewhere
+        except ValueError as e:
+            return jsonify({
+                "error": "Not Found",
+                "message": f"Failed to fetch image from URL: {str(e)}",
+                "code": 404
+            }), 404
+    elif isinstance(image_content, str):  # Ensure image_content is base64-encoded
         try:
             image_content = base64.b64decode(image_content)
         except Exception as e:
@@ -61,7 +57,7 @@ def check_image():
 
     # Perform NSFW check on the image
     try:
-        result = nsfw_image_checker(image_content, os.getenv('CONTENT_SAFETY_ENDPOINT'), os.getenv('CONTENT_SAFETY_KEY'))
+        image_result = nsfw_image_checker(image_content, os.getenv('CONTENT_SAFETY_ENDPOINT'), os.getenv('CONTENT_SAFETY_KEY'))
     except Exception as e:
         return jsonify({
             "error": "Internal Server Error",
@@ -69,8 +65,21 @@ def check_image():
             "code": 500
         }), 500
 
-    # Return the result as a JSON response
-    return jsonify(result), result["code"]
+    # Perform NSFW check on the description text
+    try:
+        text_result = nsfw_text_checker(description, os.getenv('CONTENT_SAFETY_ENDPOINT'), os.getenv('CONTENT_SAFETY_KEY'))
+    except Exception as e:
+        return jsonify({
+            "error": "Internal Server Error",
+            "message": f"An error occurred while analyzing the text: {str(e)}",
+            "code": 500
+        }), 500
+
+    # Combine the results and return them
+    return jsonify({
+        "image_check": image_result,
+        "text_check": text_result
+    })
 
 
 if __name__ == '__main__':

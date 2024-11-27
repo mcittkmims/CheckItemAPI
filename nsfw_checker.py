@@ -1,6 +1,6 @@
 import os
 from azure.ai.contentsafety import ContentSafetyClient
-from azure.ai.contentsafety.models import AnalyzeImageOptions, ImageData, ImageCategory
+from azure.ai.contentsafety.models import AnalyzeImageOptions, ImageData, ImageCategory, AnalyzeTextOptions, TextCategory
 from azure.core.credentials import AzureKeyCredential
 from azure.core.exceptions import HttpResponseError
 
@@ -49,3 +49,38 @@ def nsfw_image_checker(image_content, endpoint, api_key):
         "code": 200
     }
 
+
+def nsfw_text_checker(description,endpoint,key):
+    # Create an Azure AI Content Safety client
+    client = ContentSafetyClient(endpoint, AzureKeyCredential(key))
+
+    # Construct request
+    request = AnalyzeTextOptions(text=description)
+
+    # Analyze text
+    try:
+        response = client.analyze_text(request)
+    except HttpResponseError as e:
+        return {
+            "error": "Not Found",
+            "message": f"Text analysis failed: {e.error.message}",
+            "code": 500
+        }
+
+    hate_result = next(item for item in response.categories_analysis if item.category == TextCategory.HATE)
+    self_harm_result = next(item for item in response.categories_analysis if item.category == TextCategory.SELF_HARM)
+    sexual_result = next(item for item in response.categories_analysis if item.category == TextCategory.SEXUAL)
+    violence_result = next(item for item in response.categories_analysis if item.category == TextCategory.VIOLENCE)
+
+    if not (hate_result.severity or self_harm_result.severity or sexual_result.severity or violence_result.severity):
+        return {
+            "safe": True,
+            "message": "Text is safe.",
+            "code": 200
+        }
+
+    return {
+        "safe": False,
+        "message": "Text contains potentially unsafe content.",
+        "code": 200
+    }
